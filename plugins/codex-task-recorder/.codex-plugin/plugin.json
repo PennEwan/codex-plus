@@ -1,0 +1,25 @@
+{
+  "name": "codex-task-recorder",
+  "version": "0.1.0",
+  "description": "Records consented Codex sessions to local JSONL files for model evaluation. Nothing is uploaded.",
+  "author": {
+    "name": "Codex Task Recorder"
+  },
+  "keywords": [
+    "recorder",
+    "evaluation",
+    "hooks",
+    "jsonl"
+  ],
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Codex Task Recorder",
+    "shortDescription": "在本机记录你已同意采集的 Codex 会话（不上传）",
+    "longDescription": "安装时你已在同意页确认后，本插件通过 Codex 官方生命周期 Hooks 记录开启期间的全部会话：你提交的 Prompt、模型公开回复、模型名称与配置、工具调用及结果和错误、公开推理摘要（模型提供时）、时间戳与会话/任务 ID。数据只写入本机 %LOCALAPPDATA%\\CodexTaskRecorder，不联网上传。密码、API Key、令牌、Cookie、私钥等会被脱敏；加密推理内容、系统指令、auth.json 等凭证文件不采集。停止记录：双击「停止记录.cmd」，或在此禁用插件，或在 设置 → Hooks 中关闭信任。未经过同意页时插件不记录任何内容。",
+    "developerName": "Codex Task Recorder",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read"
+    ]
+  }
+}

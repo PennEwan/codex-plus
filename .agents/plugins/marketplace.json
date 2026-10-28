@@ -1,0 +1,20 @@
+{
+  "name": "ctr-local",
+  "interface": {
+    "displayName": "Codex Task Recorder (local)"
+  },
+  "plugins": [
+    {
+      "name": "codex-task-recorder",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-task-recorder"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,97 @@
+import unittest
+
+from ctr.redact import mentions_sensitive_file, redact_obj, redact_text
+
+
+class RedactTextTest(unittest.TestCase):
+    def assertRedacted(self, text, secret, kind):
+        out, counts = redact_text(text)
+        self.assertNotIn(secret, out)
+        self.assertIn(f"[REDACTED:{kind}]", out)
+        self.assertGreaterEqual(counts[kind], 1)
+
+    def test_openai_key(self):
+        key = "sk-proj-" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4"
+        self.assertRedacted(f"use {key} here", key, "openai_key")
+
+    def test_anthropic_key(self):
+        key = "sk-ant-api03-" + "x" * 30
+        self.assertRedacted(key, key, "anthropic_key")
+
+    def test_github_token(self):
+        tok = "ghp_" + "A" * 36
+        self.assertRedacted(f"token={tok}", tok, "github_token")
+
+    def test_aws_access_key(self):
+        self.assertRedacted("AKIAABCDEFGHIJKLMNOP", "AKIAABCDEFGHIJKLMNOP", "aws_access_key")
+
+    def test_jwt(self):
+        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        self.assertRedacted(f"cookie {jwt}", jwt, "jwt")
+
+    def test_bearer(self):
+        self.assertRedacted("Authorization: Bearer abcdefghijklmnop1234", "abcdefghijklmnop1234", "auth_header")
+
+    def test_pem_private_key(self):
+        pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----"
+        self.assertRedacted(f"x\n{pem}\ny", "MIIEowIBAAKCAQEA", "private_key")
+
+    def test_url_credentials(self):
+        out, counts = redact_text("git clone https://alice:hunter2pass@example.com/repo.git")
+        self.assertNotIn("hunter2pass", out)
+        self.assertIn("https://alice:[REDACTED:url_password]@example.com", out)
+        self.assertEqual(counts["url_password"], 1)
+
+    def test_env_assignment(self):
+        self.assertRedacted("set OPENAI_API_KEY=abc123secretvalue", "abc123secretvalue", "assignment")
+        self.assertRedacted('password: "s3cr3t!"', "s3cr3t!", "assignment")
+
+    def test_curl_header_inline(self):
+        self.assertRedacted('curl -H "x-api-key: zzzzzzzz1234" https://x', "zzzzzzzz1234", "auth_header")
+
+    def test_leaves_ordinary_text_alone(self):
+        for text in ["max_tokens: 100", "input_tokens=5321", "echo $OPENAI_API_KEY",
+                     "def login(password: str):", "hello world", "skill-based task"]:
+            out, counts = redact_text(text)
+            self.assertEqual(out, text, text)
+            self.assertEqual(sum(counts.values()), 0, text)
+
+
+class RedactObjTest(unittest.TestCase):
+    def test_sensitive_keys_only_for_strings(self):
+        obj = {"api_key": "plainvalue", "password": "pw", "input_tokens": 12,
+               "token_usage": {"total_tokens": 9}, "access_token": "abc", "name": "ok"}
+        out, counts = redact_obj(obj)
+        self.assertEqual(out["api_key"], "[REDACTED:key]")
+        self.assertEqual(out["password"], "[REDACTED:key]")
+        self.assertEqual(out["access_token"], "[REDACTED:key]")
+        self.assertEqual(out["input_tokens"], 12)
+        self.assertEqual(out["token_usage"], {"total_tokens": 9})
+        self.assertEqual(out["name"], "ok")
+        self.assertEqual(counts["key"], 3)
+
+    def test_nested_lists_and_values(self):
+        key = "sk-" + "Z" * 40
+        out, counts = redact_obj({"a": [{"cmd": f"curl -d {key}"}]})
+        self.assertNotIn(key, str(out))
+        self.assertEqual(counts["openai_key"], 1)
+
+    def test_does_not_mutate_input(self):
+        obj = {"password": "x"}
+        redact_obj(obj)
+        self.assertEqual(obj, {"password": "x"})
+
+
+class SensitiveFileTest(unittest.TestCase):
+    def test_detects(self):
+        for s in [r"type C:\Users\a\.codex\auth.json", "cat .env", "Get-Content id_rsa",
+                  {"path": "D:/x/server.pem"}, "cat ~/.git-credentials"]:
+            self.assertTrue(mentions_sensitive_file(s), s)
+
+    def test_ignores(self):
+        for s in ["cat README.md", "ls src", {"path": "environment.py"}, "authors.json"]:
+            self.assertFalse(mentions_sensitive_file(s), s)
+
+
+if __name__ == "__main__":
+    unittest.main()
