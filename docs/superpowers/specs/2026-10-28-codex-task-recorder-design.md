@@ -16,7 +16,8 @@
 4. 每条事件标注来源与完整度，不伪造无法获取的数据。
 5. 仅在用户明确启用时采集；提供可见状态与停止功能。
 6. 排除密码、会话凭证、API Key 等敏感信息。
-7. 不使用键盘监听、进程注入、破解客户端或绕过权限机制（包括不使用 `--dangerously-bypass-hook-trust`）。
+7. 不使用键盘监听、进程注入、破解客户端或绕过权限机制（包括不使用 `--dangerously-bypass-hook-trust`、不代替用户写入 Hook 信任记录）。
+8. 用户操作要简单：全程双击脚本 + App 内点一次「全部信任」，无需命令行。
 
 ### 1.3 非目标
 远程上传、账户/充值、回放 UI、跨机器同步、对加密推理内容的任何处理。
@@ -74,7 +75,9 @@ D:\codex-task-recorder\
       transcript.py rollout 增量解析 → 事件
       report.py     覆盖率报告
       cli.py        命令行
-  ctr.cmd                                 CLI 包装（PYTHONPATH 指向 lib）
+  ctr.cmd                                 CLI 包装（PYTHONPATH 指向 lib），供开发与测试使用
+  安装.cmd / 开始记录.cmd / 停止记录.cmd / 记录状态.cmd / 卸载.cmd
+                                          面向用户的双击入口（内部调用 ctr.cmd）
   tests\                                  unittest + 合成夹具（不使用真实会话内容）
   scripts\live_cli_tests.py               用 App 内核跑 CLI 实测场景
   docs\hooks-support.md                   支持范围与限制（实测后填写）
@@ -174,14 +177,28 @@ recorder.log                       记录器自身错误
 - 未识别的记录类型 → `transcript_other`（只计类型名）。格式变化时宁可少记，不猜测。
 - `SubagentStop.agent_transcript_path` 同样解析，事件带 `agent_id`。
 
-### 6.7 启用、可见状态与停止
-- `ctr enable [--cwd <路径>…]`：打印同意说明（采集什么、存哪里、排除什么、如何停止），要求输入 `同意` 或 `yes`；脚本化测试可用显式参数 `--i-consent`。写入新授权窗口。建议用 `--cwd` 限定测试目录。
+### 6.7 用户流程：同意即开启、可见状态与停止
+
+**用户流程（同意与安装合并为一步）：**
+1. 双击 `安装.cmd` → 控制台显示同意说明（采集什么、存在哪里、排除哪些敏感信息、如何停止）→ 用户按 `Y` → 写入同意记录并打开授权窗口 → 用 App 内核执行官方安装命令 → 提示"请重启 Codex，在插件页点「全部信任」"。用户按其他键则不安装、不开启。
+2. 用户重启 Codex App，在插件详情页点一次「全部信任」（Codex 强制，无法省略，也不代为完成）。
+3. 正常使用；开启期间记录 **全部会话**。
+4. 双击 `停止记录.cmd` 立即停止；双击 `开始记录.cmd`（显示一行摘要并按 `Y`）恢复；`记录状态.cmd` 查看状态；`卸载.cmd` 卸载插件并询问是否删除已记录数据。
+
+**失败即关闭：** 从未经过同意页（如用户直接在 App 中安装并信任插件）→ 不记录，仅在每个会话首次 `UserPromptSubmit` 提示一次"Codex Task Recorder 尚未开启记录，双击「开始记录」开启"。用户主动停止后不再提示。
+
+**App 内可见提示：** 开启期间每个会话首次 `UserPromptSubmit` 返回 `{"systemMessage": "● Codex Task Recorder 正在本地记录本会话。停止：双击「停止记录」"}`。是否在桌面 App 中显示、是否进入模型上下文须实测；若不支持则改用 `Stop` 并在支持说明中记录。
+
+**插件页说明：** `plugin.json` 的 `longDescription` 写明采集范围、存储位置与停止方式，用户在点「全部信任」时可以看到。
+
+**官方层面的停止：** 在 App 中禁用插件，或在「设置 → Hooks」关闭信任开关。
+
+**CLI（双击脚本的底层，也供开发测试使用）：**
+- `ctr enable [--i-consent] [--cwd <路径>…]`：显示同意说明并要求确认；`--i-consent` 为脚本化测试的显式同意；`--cwd` 仅供开发测试限定范围，默认全部会话。
 - `ctr disable`：立即关闭当前授权窗口；之后的 Hook 调用全部直接退出。
-- `ctr status`：启用状态、作用域、授权窗口、数据目录、各会话事件数、最近事件时间、插件安装状态。
-- App 内可见提示：启用期间每个会话首次 `UserPromptSubmit` 返回 `{"systemMessage": "● Codex Task Recorder 正在本地记录本会话。停止：<仓库>\\ctr.cmd disable"}`（`<仓库>` 为实际绝对路径）。是否在桌面 App 中显示、是否进入模型上下文须实测；若不支持则改用 `Stop` 并在支持说明中记录。
-- 官方层面的停止：在 App 中禁用插件，或在「设置 → Hooks」关闭信任开关。
+- `ctr status`：开启状态、范围、授权窗口、数据目录、各会话事件数、最近事件时间、插件安装状态。
 - `ctr purge [--session <id>]`：删除本地已记录数据。
-- `ctr install` / `ctr uninstall`：用 App 内核执行官方命令 `codex plugin marketplace add|remove` 与 `codex plugin add|remove`。
+- `ctr install` / `ctr uninstall`：用 App 内核执行官方命令 `codex plugin marketplace add|remove` 与 `codex plugin add|remove`。App 内核定位：优先正在运行的 App 所用 `codex.exe`，否则取 `%LOCALAPPDATA%\OpenAI\Codex\bin\*\codex.exe` 中版本最高者。
 
 ### 6.8 覆盖率报告 `ctr report`
 输出 `reports\coverage-<时间>.md/.json`，并复制到 `docs\coverage-report.md`：
@@ -213,7 +230,7 @@ recorder.log                       记录器自身错误
 1. 普通对话；2. 工具调用（成功 + 故意失败的命令）；3. 模型切换（`exec resume … -m <另一模型>`）；4. 任务中断（尽力尝试向 exec 发送中断；无法触发则如实记录，转桌面手测）。
 
 ### 9.4 桌面 App 手动测试
-`docs\desktop-manual-test.md` 逐步清单：信任 Hook → 启用 → 普通对话 → 工具调用 → 切换模型 → 点停止中断 → `ctr disable` 验证停止 → `ctr report`。
+`docs\desktop-manual-test.md` 逐步清单：双击 `安装.cmd` 并同意 → 重启 App、点「全部信任」→ 普通对话 → 工具调用 → 切换模型 → 点停止中断 → 双击 `停止记录.cmd` 验证停止 → `ctr report`。另测"未经同意页直接信任"时不记录。
 
 ### 9.5 验收产物
 `docs\coverage-report.md`、`docs\hooks-support.md`（支持范围与限制，标注"文档声明 / 实测确认 / 未验证"）、全部单元测试通过的输出。
