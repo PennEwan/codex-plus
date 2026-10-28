@@ -25,3 +25,18 @@
 - 步骤 1 的提示是否可见（截图最好）。
 - 插件页 / 设置 → Hooks 的信任界面实际叫什么、在哪里（用于最终用户指引）。
 - 任何 Hook 失败、超时或审批相关的提示文字。
+
+## 2026-10-28 手测结果
+
+会话 `01a18266-5a69…`（originator = `Codex Desktop`，内核 0.163.0-alpha.10.2，cwd = `D:\ctr-testbed`）：
+
+| # | 场景 | 结果 | 证据 |
+|---|---|---|---|
+| 1 | 普通对话 | ✅ | Hook UserPromptSubmit + Stop；transcript UserMessage + AgentMessage；Hook 与 transcript 的 Prompt 一致 |
+| 2 | 工具调用 | ✅ | 2 条命令各有 PreToolUse / PostToolUse；transcript CommandExecution 给出退出码（均成功） |
+| 3 | 模型切换 | ✅ | `gpt-6-luna` → `gpt-6.1-sol`；Hook `model` 变化与 transcript `thread_settings_applied` / `turn_context` 均检测到 |
+| 4 | 任务中断 | ✅ | Hook Interrupt；transcript `turn_aborted`（reason = interrupted，经 `ctr flush` 补读） |
+| 5 | 停止记录 | 未在桌面端执行 | 已用模拟双击验证 `停止记录.cmd` / `开始记录.cmd` 正常；CLI 实测验证停止后不记录、恢复后不补录停止期间内容 |
+| — | 「正在记录」提示是否可见 | 待确认 | 本会话首条消息已返回 `systemMessage` |
+
+意外发现：同一工作区还出现了 App 自动发起的后台会话 `01a18266-3d8b…`（“个性化建议”任务，无 transcript），已按 `session_kind=background` 单独记录。

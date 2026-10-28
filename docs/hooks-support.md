@@ -2,7 +2,7 @@
 
 - 目标版本：Codex 桌面 App `OpenAI.Codex 26.1013.4894.0`；App 内核 `codex.exe 0.163.0-alpha.10.2`
 - 实测日期：2026-10-28；平台：Windows Server 2025（10.0.26100），Python 3.12.10
-- 实测方式：用 App 内核启动独立的 `codex app-server`（与桌面 App 相同的协议与内核）以及 `codex exec`；桌面 App 界面另行手测（见 `desktop-manual-test.md`）
+- 实测方式：用 App 内核启动独立的 `codex app-server`（与桌面 App 相同的协议与内核）、`codex exec`，以及在桌面 App 中手测（originator = `Codex Desktop`，见 `desktop-manual-test.md`）
 - 标注：**【实测】** 本机验证；**【文档】** 官方文档声明，未独立验证；**【社区】** 第三方报告；**【待测】** 尚未验证
 - 详细数字见 `coverage-report.md`
 
@@ -45,19 +45,19 @@
 
 ## 4. 各事件实测
 
-| 事件 | 触发 | 实际输入字段（common 之外） | 观察 |
-|---|---|---|---|
-| SessionStart | ✅ | source | 在首个回合开始时触发（`turn/started` 之后） |
-| UserPromptSubmit | ✅ | prompt, turn_id | 每回合一次；返回的 `systemMessage` 由 app-server 作为 `warning` 条目下发，**未进入模型上下文** |
-| PreToolUse | ✅ | tool_name, tool_use_id, tool_input, turn_id | `tool_name` = `Bash`；`tool_use_id` = UI 条目 id `exec-…`；**按单条命令触发**（模型级 code-mode `exec` 调用本身不触发） |
-| PostToolUse | ✅ | + tool_response | `tool_response` 只是**输出文本，没有退出码**；被中断的命令没有 PostToolUse |
-| Stop | ✅ | last_assistant_message, stop_hook_active | 只在**正常完成**的回合触发；失败（如 `model_not_found`、`serverOverloaded`）与被中断的回合都不触发 |
-| Interrupt | ✅ | turn_id | `turn/interrupt` 后触发；模型生成中、命令执行中两种中断都已验证 |
-| SessionEnd | ✅ | reason | app-server 会话关闭与 `codex exec` 退出时触发；不带 `model` / `turn_id` |
-| PreCompact | ✅ | trigger（`manual`） | `thread/compact/start` 后触发；不带 `permission_mode` |
-| PostCompact | 【待测】 | | 本次压缩因服务端 `serverOverloaded` 失败，未触发 PostCompact |
-| PermissionRequest | 【待测】 | | 测试回合在请求审批前即因服务端容量失败 |
-| SubagentStart / SubagentStop | 【待测】 | | 未触发子代理 |
+| 事件 | app-server / exec | 桌面 App | 实际输入字段（common 之外） | 观察 |
+|---|---|---|---|---|
+| SessionStart | ✅ | ✅ | source | 在首个回合开始时触发（`turn/started` 之后） |
+| UserPromptSubmit | ✅ | ✅ | prompt, turn_id | 每回合一次；返回的 `systemMessage` 由 app-server 作为 `warning` 条目下发，**未进入模型上下文** |
+| PreToolUse | ✅ | ✅ | tool_name, tool_use_id, tool_input, turn_id | shell 命令的 `tool_name` = `Bash`，MCP 工具为 `mcp__<server>__<tool>`；`tool_use_id` = UI 条目 id `exec-…`；**按单条命令触发**（模型级 code-mode `exec` 调用本身不触发） |
+| PostToolUse | ✅ | ✅ | + tool_response | `tool_response` 只是**输出文本，没有退出码**；被中断的命令没有 PostToolUse；观察到 1 次 MCP 调用只有 PreToolUse、没有 PostToolUse |
+| Stop | ✅ | ✅ | last_assistant_message, stop_hook_active | 只在**正常完成**的回合触发；失败（如 `model_not_found`、`serverOverloaded`）与被中断的回合都不触发 |
+| Interrupt | ✅ | ✅ | turn_id | `turn/interrupt` / 桌面端停止按钮后触发；transcript 的 `turn_aborted` 在 Hook 之后才写入，需靠后续 Hook 或 `ctr flush` 补读 |
+| SessionEnd | ✅ | 未观测（会话仍打开） | reason | app-server 会话关闭与 `codex exec` 退出时触发；不带 `model` / `turn_id` |
+| PreCompact | ✅ | 未测 | trigger（`manual`） | `thread/compact/start` 后触发；不带 `permission_mode` |
+| PostCompact | 【待测】 | 【待测】 | | 本次压缩因服务端 `serverOverloaded` 失败，未触发 PostCompact |
+| PermissionRequest | 【待测】 | 【待测】 | | 测试回合在请求审批前即因服务端容量失败 |
+| SubagentStart / SubagentStop | 【待测】 | 【待测】 | | 未触发子代理 |
 
 ## 5. 数据可得性
 
@@ -82,10 +82,12 @@
 5. **失败 / 中断的回合没有 Stop**：靠下一次 Hook（UserPromptSubmit / Interrupt / SessionEnd）补读 transcript。
 6. **短生命周期进程会丢后台 Hook**：`codex exec` 场景下后台 Stop 可能不执行，由同步 SessionEnd 兜底补读。桌面 App 为常驻进程，不受影响（桌面端待手测确认）。
 7. **模型可能拒绝读取敏感文件**（实测拒绝 `type .env`）；"敏感文件输出整体丢弃"规则目前仅由单元测试覆盖。
-8. **Codex 自身的 rollout 文件不受本插件控制**：例如 Prompt 中的密钥会原样出现在 `~/.codex/sessions/...`；本插件只保证自己的 JSONL 已脱敏。
+8. **桌面 App 会在后台自动运行 Agent 任务**【实测】：例如“个性化建议”（`# Overview Generate 0 to 3 hyperpersonalized suggestions…`），在用户打开的工作区内执行命令（包括列出 `D:\`）并调用 MCP 工具，同样触发全部 Hook，但 `transcript_path` 为空（Codex 不持久化）。本插件照常记录并标记 `session_kind=background`，报告中单独统计，不算作用户 Prompt，也不向其发送提示。
+9. **桌面端会话默认 `permission_mode = bypassPermissions`**【实测】（取决于用户配置），因此桌面端测试未出现审批，PermissionRequest 未触发。
+10. **Codex 自身的 rollout 文件不受本插件控制**：例如 Prompt 中的密钥会原样出现在 `~/.codex/sessions/...`；本插件只保证自己的 JSONL 已脱敏。
 
 ## 7. 尚未验证
 
-- 桌面 App 界面中「正在记录」提示是否可见、样式如何（`desktop-manual-test.md` 步骤 1）
-- 桌面 App 会话的 originator 标识与事件触发情况（预期与 app-server 一致）
+- 桌面 App 界面中「正在记录」提示是否可见、样式如何（Hook 已返回 `systemMessage`，app-server 以 `warning` 下发；界面表现待用户确认）
+- 桌面端 SessionEnd 的触发时机（关闭会话 / 退出 App）
 - PostCompact、PermissionRequest、SubagentStart / SubagentStop

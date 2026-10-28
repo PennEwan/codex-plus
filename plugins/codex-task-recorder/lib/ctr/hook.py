@@ -34,6 +34,7 @@ DOCUMENTED_FIELDS = {
     "Stop": ("turn_id", "stop_hook_active", "last_assistant_message"),
     "Interrupt": ("turn_id",),
 }
+STANDARD, BACKGROUND = "standard", "background"
 INGEST_ON = {"UserPromptSubmit", "Stop", "Interrupt", "SessionEnd", "SubagentStop"}
 SHORT_BUDGET_ON = {"Interrupt", "SessionEnd"}  # Codex caps these hooks at 3 s
 LONG_BUDGET, SHORT_BUDGET = 8 * 1024 * 1024, 2 * 1024 * 1024
@@ -82,11 +83,12 @@ def handle(payload: dict, paths: Paths, env, started: float) -> dict | None:
     out = None
     with store.session(paths, sid) as h:
         meta = h.cursor.setdefault("meta", {})
+        kind = _session_kind(h.cursor, payload)
         events = hook_events(payload, meta)
         events += _track_model(payload, h.cursor, meta)
         if name in INGEST_ON:
             events += _ingest(payload, st, h.cursor, meta, name)
-        if name == "UserPromptSubmit" and not h.cursor.get("notice_shown"):
+        if name == "UserPromptSubmit" and kind == STANDARD and not h.cursor.get("notice_shown"):
             h.cursor["notice_shown"] = True
             out = {"systemMessage": NOTICE_RECORDING}
             events.append(make_event("recorder_notice", session_id=sid, source_type="derived",
@@ -94,8 +96,23 @@ def handle(payload: dict, paths: Paths, env, started: float) -> dict | None:
                                      meta=meta, data={"channel": "systemMessage",
                                                       "message": NOTICE_RECORDING}))
         events.append(_invocation(payload, env, started, out is not None, meta))
+        _stamp_kind(events, kind)
         h.append(events)
     return out
+
+
+def _session_kind(cursor: dict, payload: dict) -> str:
+    """No transcript_path means Codex does not persist the thread: an App background task
+    (e.g. the desktop App's suggestion generator), not a conversation the user typed."""
+    has_transcript = bool(payload.get("transcript_path"))
+    if cursor.get("session_kind") != STANDARD:
+        cursor["session_kind"] = STANDARD if has_transcript else BACKGROUND
+    return cursor["session_kind"]
+
+
+def _stamp_kind(events: list[dict], kind: str) -> None:
+    for e in events:
+        e["session_kind"] = kind
 
 
 def hook_events(payload: dict, meta: dict) -> list[dict]:
@@ -189,21 +206,53 @@ def _ingest(payload: dict, st: state.State, cursor: dict, meta: dict, name: str)
     if name == "SubagentStop" and payload.get("agent_transcript_path"):
         targets.append((str(payload["agent_transcript_path"]), payload.get("agent_id")))
     events: list[dict] = []
-    sensitive = cursor.setdefault("sensitive_calls", [])
     for path, agent_id in targets:
-        tcur = cursor.setdefault("transcripts", {}).setdefault(path, {"offset": 0})
-        ctx = transcript.Context(session_id=sid, meta=meta, sensitive_calls=sensitive,
-                                 agent_id=agent_id, last_model=tcur.get("last_model"),
-                                 current_turn=tcur.get("current_turn"))
-        result = transcript.ingest(path, tcur["offset"], st, ctx, budget)
-        tcur.update(offset=result.offset, last_model=ctx.last_model, current_turn=ctx.current_turn)
-        events += result.events
-        if result.stats:
-            events.append(make_event(
-                "transcript_other", session_id=sid, source_type="transcript", source_name="summary",
-                meta=meta, agent_id=agent_id, data={"counts": dict(result.stats)},
-                note="未映射或按策略省略的 transcript 记录：只计类型，不存内容"))
+        events += _ingest_path(path, agent_id, sid, st, cursor, meta, budget)
     return events
+
+
+def _ingest_path(path: str, agent_id: str | None, sid: str, st: state.State, cursor: dict,
+                 meta: dict, budget: int) -> list[dict]:
+    sensitive = cursor.setdefault("sensitive_calls", [])
+    tcur = cursor.setdefault("transcripts", {}).setdefault(path, {"offset": 0})
+    if agent_id:
+        tcur["agent_id"] = agent_id
+    ctx = transcript.Context(session_id=sid, meta=meta, sensitive_calls=sensitive,
+                             agent_id=agent_id, last_model=tcur.get("last_model"),
+                             current_turn=tcur.get("current_turn"))
+    result = transcript.ingest(path, tcur["offset"], st, ctx, budget)
+    tcur.update(offset=result.offset, last_model=ctx.last_model, current_turn=ctx.current_turn)
+    events = list(result.events)
+    if result.stats:
+        events.append(make_event(
+            "transcript_other", session_id=sid, source_type="transcript", source_name="summary",
+            meta=meta, agent_id=agent_id, data={"counts": dict(result.stats)},
+            note="未映射或按策略省略的 transcript 记录：只计类型，不存内容"))
+    return events
+
+
+def flush_transcripts(paths: Paths, st: state.State) -> int:
+    """Read transcript lines written after a session's last hook (e.g. turn_aborted after
+    Interrupt, or a final turn whose async Stop never ran). Consent windows still apply."""
+    if not paths.cursors.exists():
+        return 0
+    added = 0
+    for cursor_file in sorted(paths.cursors.glob("*.json")):
+        try:
+            sid = json.loads(cursor_file.read_text(encoding="utf-8")).get("session_id")
+        except (OSError, ValueError):
+            continue
+        if not sid:
+            continue
+        with store.session(paths, sid) as h:
+            meta = h.cursor.setdefault("meta", {})
+            events: list[dict] = []
+            for path, tcur in list(h.cursor.get("transcripts", {}).items()):
+                events += _ingest_path(path, tcur.get("agent_id"), sid, st, h.cursor, meta, LONG_BUDGET)
+            _stamp_kind(events, h.cursor.get("session_kind", STANDARD))
+            h.append(events)
+            added += len(events)
+    return added
 
 
 def _invocation(payload: dict, env, started: float, notice: bool, meta: dict) -> dict:

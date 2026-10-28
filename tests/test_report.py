@@ -63,6 +63,24 @@ class ReportTest(TempPathsCase):
         md = report.render(r)
         self.assertIn("| Interrupt | **未观测到** |", md)
 
+    def test_background_sessions_are_reported_separately(self):
+        self.run_hook({"hook_event_name": "UserPromptSubmit", "session_id": "bg-1", "turn_id": "t",
+                       "cwd": "D:/x", "model": "m", "prompt": "# Overview\nGenerate suggestions"})
+        legacy = {"hook_event_name": "UserPromptSubmit", "session_id": "bg-legacy", "turn_id": "t",
+                  "cwd": "D:/x", "model": "m", "prompt": "old"}
+        self.run_hook(legacy)
+        events = self.events()
+        for e in events:  # simulate events recorded before session_kind existed
+            if e["session_id"] == "bg-legacy":
+                e.pop("session_kind", None)
+        r = report.build(events)
+        self.assertEqual(r["session_kinds"], {"background": 2})
+        self.assertEqual({b["session_id"] for b in r["background_sessions"]}, {"bg-1", "bg-legacy"})
+        prompts = next(c for c in r["coverage"] if c["requirement"] == "用户已提交的 Prompt")
+        self.assertEqual(prompts["events"], 0, "background prompts are not user prompts")
+        self.assertEqual(r["hooks"]["UserPromptSubmit"]["invocations"], {"后台会话": 2})
+        self.assertIn("## 8. 后台会话", report.render(r))
+
     def test_write_creates_files(self):
         self.run_hook(p("UserPromptSubmit", prompt="hello"))
         md, js = report.write(self.paths, copy_to=self.tmp / "copy.md")

@@ -37,19 +37,41 @@ def _originator(event: dict, by_session: dict) -> str:
     return event["source"].get("originator") or by_session.get(event.get("session_id")) or "未知"
 
 
+def session_kinds(events: list[dict]) -> dict[str, str]:
+    """standard / background per session. Events recorded before session_kind existed are
+    classified the same way the hook does: no transcript_path ever seen -> background."""
+    explicit: dict[str, str] = {}
+    has_transcript: dict[str, bool] = defaultdict(bool)
+    for e in events:
+        sid = e["session_id"]
+        if e.get("session_kind"):
+            explicit[sid] = "standard" if "standard" in (e["session_kind"], explicit.get(sid)) else e["session_kind"]
+        if e["source"]["type"] == "transcript" or (
+                e["kind"] == "hook_invocation" and (e.get("data") or {}).get("transcript_path_present")):
+            has_transcript[sid] = True
+        has_transcript.setdefault(sid, False)
+    return {sid: explicit.get(sid) or ("standard" if seen else "background")
+            for sid, seen in has_transcript.items()}
+
+
 def build(events: list[dict]) -> dict:
+    kinds_by_session = session_kinds(events)
     by_session_origin: dict[str, str] = {}
     for e in events:
         o = e["source"].get("originator")
         if o:
             by_session_origin.setdefault(e["session_id"], o)
+    for sid, kind in kinds_by_session.items():
+        if kind == "background":
+            by_session_origin.setdefault(sid, "后台会话")
+    all_events, events = events, [e for e in events if kinds_by_session.get(e["session_id"]) == "standard"]
 
     # 1. Hook support matrix, from hook_invocation diagnostics.
     hooks: dict = {name: {"invocations": Counter(), "payload_keys": set(), "transcript_path_present": Counter(),
                           "first_seen": None, "max_duration_ms": 0.0, "shell": Counter()}
                    for name in HOOK_EVENTS}
     env_seen: dict[str, set] = defaultdict(set)
-    for e in events:
+    for e in all_events:
         if e["kind"] != "hook_invocation":
             continue
         name = e["source"]["name"]
@@ -143,17 +165,30 @@ def build(events: list[dict]) -> dict:
     }
 
     omitted = Counter()
-    for e in events:
+    for e in all_events:
         if e["kind"] == "transcript_other":
             omitted.update(e["data"].get("counts") or {})
     redactions = Counter()
-    for e in events:
+    for e in all_events:
         redactions.update(e["redaction"]["counts"])
+
+    background = []
+    for sid in (s for s, k in kinds_by_session.items() if k == "background"):
+        evs = [e for e in all_events if e["session_id"] == sid]
+        first_prompt = next(((e["data"] or {}).get("text") or "" for e in evs if e["kind"] == "user_prompt"), "")
+        background.append({
+            "session_id": sid, "events": len(evs),
+            "hooks": dict(Counter(e["source"]["name"] for e in evs if e["kind"] == "hook_invocation")),
+            "tool_names": sorted({(e["data"] or {}).get("tool_name") for e in evs if e["kind"] == "tool_call"} - {None}),
+            "first_prompt_excerpt": " ".join(first_prompt.split())[:80],
+        })
 
     return {
         "generated_at": timeutil.iso(timeutil.now()),
-        "total_events": len(events),
-        "codex_versions": sorted({e["source"].get("codex_version") for e in events} - {None}),
+        "total_events": len(all_events),
+        "session_kinds": dict(Counter(kinds_by_session.values())),
+        "background_sessions": background,
+        "codex_versions": sorted({e["source"].get("codex_version") for e in all_events} - {None}),
         "originators": sorted(set(by_session_origin.values())),
         "hooks": {k: {"invocations": dict(v["invocations"]), "total": sum(v["invocations"].values()),
                       "payload_keys": sorted(v["payload_keys"]),
@@ -171,6 +206,9 @@ def build(events: list[dict]) -> dict:
     }
 
 
+_KIND_LABEL = {"standard": "用户会话", "background": "后台会话"}
+
+
 def _pct(n: int, d: int) -> str:
     return f"{n}/{d} ({(100 * n / d):.0f}%)" if d else "0/0"
 
@@ -180,6 +218,8 @@ def render(r: dict) -> str:
     out = [f"# 事件覆盖率报告", "",
            f"- 生成时间：{r['generated_at']}",
            f"- 事件总数：{r['total_events']}",
+           "- 会话：" + "，".join(f"{_KIND_LABEL.get(k, k)} {v} 个" for k, v in r["session_kinds"].items())
+           + "（第 2–5 节只统计用户会话；后台会话见第 8 节）",
            f"- Codex 内核版本：{', '.join(r['codex_versions']) or '未知'}",
            f"- 来源客户端（originator）：{', '.join(r['originators']) or '未知'}", "",
            "## 1. Hook 支持矩阵（实测）", "",
@@ -233,6 +273,17 @@ def render(r: dict) -> str:
     out += [f"- `{k}`: {v}" for k, v in sorted(r["transcript_omitted_or_unmapped"].items())] or ["- 无"]
     out += ["", "## 7. 脱敏统计", ""]
     out += [f"- `{k}`: {v}" for k, v in sorted(r["redactions"].items())] or ["- 无"]
+    out += ["", "## 8. 后台会话（App 自动任务，不计入第 2–5 节）", "",
+            "判定：会话从未提供 `transcript_path`（Codex 不持久化该会话）。事件照常记录并标记 `session_kind=background`。", ""]
+    if r["background_sessions"]:
+        out += ["| 会话 | 事件数 | 触发的 Hook | 调用的工具 | 首条指令摘录 |", "|---|---|---|---|---|"]
+        for b in r["background_sessions"]:
+            hooks = ", ".join(f"{k}×{v}" for k, v in b["hooks"].items())
+            excerpt = b["first_prompt_excerpt"].replace("|", "/")
+            out.append(f"| `{b['session_id'][:13]}…` | {b['events']} | {hooks} | "
+                       f"{', '.join(b['tool_names']) or '—'} | {excerpt} |")
+    else:
+        out.append("- 无")
     return "\n".join(out) + "\n"
 
 

@@ -6,11 +6,12 @@ from ctr import hook, state
 from helpers import T0, TempPathsCase, rec, write_rollout
 
 SID = "01a1634e-e806-7252-8f31-c4c0d9bf63c2"
+DEFAULT_TRANSCRIPT = "<default-transcript>"  # replaced by a real empty file in RecordingTest
 
 
 def payload(event, **kw):
     base = {"hook_event_name": event, "session_id": SID, "cwd": r"D:\ctr-testbed",
-            "model": "gpt-test", "permission_mode": "default", "transcript_path": None}
+            "model": "gpt-test", "permission_mode": "default", "transcript_path": DEFAULT_TRANSCRIPT}
     if event not in ("SessionStart", "SessionEnd"):
         base["turn_id"] = "turn-1"
     base.update(kw)
@@ -50,6 +51,13 @@ class RecordingTest(TempPathsCase):
     def setUp(self):
         super().setUp()
         self.enable(at=-3600)
+        self.default_rollout = self.tmp / "default-rollout.jsonl"
+        write_rollout(self.default_rollout, [])
+
+    def run_hook(self, p, env=None):
+        if isinstance(p, dict) and p.get("transcript_path") == DEFAULT_TRANSCRIPT:
+            p = {**p, "transcript_path": str(self.default_rollout)}
+        return super().run_hook(p, env)
 
     def test_prompt_recorded_with_notice_once(self):
         out = self.run_hook(payload("UserPromptSubmit", prompt="hello"))
@@ -116,6 +124,36 @@ class RecordingTest(TempPathsCase):
         self.assertEqual(len(changed), 1)
         self.assertEqual(changed[0]["data"], {"from": "gpt-a", "to": "gpt-b"})
         self.assertEqual(changed[0]["source"]["type"], "derived")
+
+    def test_session_without_transcript_is_background_and_gets_no_notice(self):
+        out = self.run_hook(payload("UserPromptSubmit", prompt="# Overview\nGenerate suggestions",
+                                    transcript_path=None))
+        self.assertIsNone(out, "nobody sees a background session; no notice")
+        self.run_hook(payload("PreToolUse", tool_name="Bash", tool_input={"command": "dir"}, transcript_path=None))
+        evs = self.events()
+        self.assertTrue(evs)
+        self.assertEqual({e["session_kind"] for e in evs}, {"background"})
+        self.assertNotIn("recorder_notice", self.kinds())
+
+    def test_session_with_transcript_is_standard(self):
+        rollout = self.tmp / "rollout.jsonl"
+        write_rollout(rollout, [])
+        self.run_hook(payload("UserPromptSubmit", prompt="hi", transcript_path=str(rollout)))
+        self.assertEqual({e["session_kind"] for e in self.events()}, {"standard"})
+
+    def test_flush_picks_up_lines_written_after_the_last_hook(self):
+        rollout = self.tmp / "rollout.jsonl"
+        write_rollout(rollout, [rec(10, "event_msg", {"type": "task_started", "turn_id": "turn-1"})])
+        self.run_hook(payload("Interrupt", transcript_path=str(rollout)))
+        with open(rollout, "a", encoding="utf-8") as f:
+            import json
+            f.write(json.dumps(rec(11, "event_msg", {"type": "turn_aborted", "turn_id": "turn-1",
+                                                     "reason": "interrupted"})) + "\n")
+        st = state.load(self.paths.state)
+        self.assertEqual(hook.flush_transcripts(self.paths, st), 1)
+        aborted = [e for e in self.events() if e["source"]["name"] == "event_msg/turn_aborted"]
+        self.assertEqual(len(aborted), 1)
+        self.assertEqual(hook.flush_transcripts(self.paths, st), 0, "second flush adds nothing")
 
     def test_garbage_stdin_exits_zero_and_logs(self):
         self.assertIsNone(self.run_hook(b"\xff not json"))

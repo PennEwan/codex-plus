@@ -21,6 +21,7 @@
 - 不记录：密码、API Key、令牌、Cookie、私钥（规则脱敏）；凭证文件内容（auth.json、.env 等）；加密推理与原始推理；系统指令（只记哈希）；额度与账户信息。
 - 每条事件标注 `source`（hook / transcript / derived）与 `completeness`（complete / partial / truncated / unavailable），拿不到的数据不填充。
 - 数据位置：`%LOCALAPPDATA%\CodexTaskRecorder\sessions\<日期>\<会话ID>.jsonl`
+- 桌面 App 自动发起的后台任务（无 transcript 的会话）也会触发 Hook：照常记录，标记 `session_kind=background`，报告中单独统计。
 
 ## 目录
 
@@ -46,7 +47,7 @@ python -m unittest discover -s tests -t tests
 :: 仅限测试目录开启记录、实测、出报告
 ctr.cmd enable --i-consent --cwd D:\ctr-testbed
 python scripts\live_tests.py --alt-model gpt-5.6-luna
-ctr.cmd report --copy-to docs\coverage-report.md
+ctr.cmd report --copy-to docs\coverage-report.md   :: report 会先执行 flush，补读会话最后一个 Hook 之后写入的 transcript
 ```
 
 修改 Python 代码后运行 `ctr.cmd install` 即可原地更新插件，**不需要重新信任**；修改 `hooks/hooks.json` 会让对应 Hook 变为 `modified`，需要用户重新信任。

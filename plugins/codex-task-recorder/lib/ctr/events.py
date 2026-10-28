@@ -57,6 +57,7 @@ def make_event(kind: str, *, session_id: str, source_type: str, source_name: str
         "recorded_at": timeutil.iso(timeutil.now()),
         "source_ts": source_ts,
         "session_id": session_id,
+        "session_kind": None,  # standard | background, set by the hook handler
         "turn_id": turn_id,
         "tool_use_id": tool_use_id,
         "item_id": item_id,

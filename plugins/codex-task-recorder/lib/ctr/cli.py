@@ -149,13 +149,16 @@ def cmd_enable(args, paths: Paths) -> int:
         if not _consent(paths, args.i_consent):
             print("已取消，未开启记录。")
             return 1
-    elif not _confirm(f"将重新开启记录（全部 Codex 会话，数据保存在 {paths.root}）。输入 Y 确认："):
+    elif not _confirm(f"将重新开启记录（{_scope_text(args.cwd or st.scope_cwds)}，数据保存在 {paths.root}）。输入 Y 确认："):
         print("已取消，未开启记录。")
         return 1
-    scope = args.cwd if args.cwd else None
-    state.enable(paths.state, timeutil.now(), scope_cwds=scope, install_dir=str(REPO_ROOT))
-    print("● 已开启记录。" + (f"范围：{', '.join(scope)}" if scope else "范围：全部会话"))
+    st = state.enable(paths.state, timeutil.now(), scope_cwds=args.cwd or None, install_dir=str(REPO_ROOT))
+    print(f"● 已开启记录。范围：{_scope_text(st.scope_cwds)}")
     return 0
+
+
+def _scope_text(scope_cwds: list[str] | None) -> str:
+    return "仅 " + "、".join(scope_cwds) if scope_cwds else "全部 Codex 会话"
 
 
 def cmd_disable(args, paths: Paths) -> int:
@@ -183,7 +186,7 @@ def cmd_status(args, paths: Paths) -> int:
         print("状态：○ 未记录（状态文件损坏，按停止处理；重新开启即可修复）")
     else:
         print("状态：● 正在记录" if state.is_recording(st) else "状态：○ 已停止")
-        print("范围：" + (", ".join(st.scope_cwds) if st.scope_cwds else "全部会话"))
+        print("范围：" + _scope_text(st.scope_cwds))
         for w in st.windows[-5:]:
             print(f"  记录时段：{w.start} → {w.end or '现在'}")
     count, kinds, last = _summary(paths)
@@ -254,9 +257,22 @@ def cmd_purge(args, paths: Paths) -> int:
     return 0
 
 
+def cmd_flush(args, paths: Paths) -> int:
+    from .hook import flush_transcripts
+
+    st = state.load(paths.state)
+    if st is None:
+        print("记录从未开启。")
+        return 0
+    added = flush_transcripts(paths, st)
+    print(f"已补读 transcript 尾部：新增 {added} 条事件（只收授权窗口内的内容）。")
+    return 0
+
+
 def cmd_report(args, paths: Paths) -> int:
     from . import report
 
+    cmd_flush(args, paths)
     md_path, json_path = report.write(paths, copy_to=Path(args.copy_to) if args.copy_to else None)
     print(f"覆盖率报告：{md_path}")
     print(f"机器可读：{json_path}")
@@ -285,7 +301,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--session")
     p.add_argument("--yes", action="store_true")
     p.set_defaults(func=cmd_purge)
-    p = sub.add_parser("report", help="生成事件覆盖率报告")
+    sub.add_parser("flush", help="补读已记录会话的 transcript 尾部").set_defaults(func=cmd_flush)
+    p = sub.add_parser("report", help="生成事件覆盖率报告（会先执行 flush）")
     p.add_argument("--copy-to", help="另存一份 Markdown 到该路径")
     p.set_defaults(func=cmd_report)
     args = parser.parse_args(argv)

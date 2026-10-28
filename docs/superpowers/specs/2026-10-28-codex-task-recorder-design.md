@@ -244,3 +244,14 @@ recorder.log                       记录器自身错误
 | Windows Shell 不确定 | `commandWindows` 选用 cmd/PowerShell 通用写法，探测确认 |
 | 同步 Hook 增加延迟 | 未启用时立即退出；实测记录单次耗时 |
 | 推理摘要通常为空（本机历史 517 条仅 2 条有摘要） | 输出 unavailable 占位并说明原因，不推测 |
+
+## 11. 实施记录（与本设计的偏差，2026-10-28）
+
+| 项目 | 设计 | 实际 | 原因 |
+|---|---|---|---|
+| Hook 执行方式 | 全部同步 | 9 个观察型 Hook 为 `async`；UserPromptSubmit / Interrupt / SessionEnd 同步 | 实测同步 Hook 每次约 0.4 s（PowerShell + Python 启动），Pre/PostToolUse 会让每条命令多约 0.75 s |
+| 未同意时不写文件 | 不写任何文件 | 每个会话写一个不含内容的提示标记，确保"尚未开启"提示只出现一次 | 避免重复提示 |
+| 实测通道 | `codex exec` | 另用 App 内核自带的 `codex app-server`（独立进程）测中断、模型切换、压缩、`hooks/list` 信任状态 | exec 无确定的中断方式；app-server 与桌面 App 协议一致 |
+| 会话类型 | 未区分 | 新增 `session_kind`：无 `transcript_path` 的会话标记为 `background` | 桌面 App 后台任务也触发 Hook；用户决定"记录但标记" |
+| 补读 | 仅在 Hook 中 | 新增 `ctr flush`（report 前自动执行） | Interrupt 之后写入的 `turn_aborted`、短进程丢失的后台 Stop |
+| 回合关联 | 仅用记录自带 turn_id | 无 turn_id 的 transcript 记录归入当前回合，标记 `turn_id_inferred` | 模型级工具调用、token 记录不带 turn_id |
