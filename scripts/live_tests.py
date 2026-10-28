@@ -73,11 +73,17 @@ def main() -> int:
     ap.add_argument("--alt-model", default="gpt-5.6-luna")
     ap.add_argument("--effort", default="low")
     ap.add_argument("--skip-exec", action="store_true")
+    ap.add_argument("--model", help="base model for the thread (default: Codex config)")
+    ap.add_argument("--only", help="comma-separated scenario numbers, e.g. 1,2")
     args = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     exe, version = kernel.find_app_kernel()
     print(f"kernel: {exe} ({version})")
     results: dict = {"kernel_version": version, "scenarios": {}}
+    only = set(args.only.split(",")) if args.only else None
+
+    def want(name: str) -> bool:
+        return only is None or name.split("_")[0] in only
 
     s = AppServer(exe, TESTBED, OUT / "appserver.jsonl")
     try:
@@ -90,13 +96,17 @@ def main() -> int:
             print("Hooks are not all trusted; trust them in the Codex App first.")
             return 2
 
-        thread = s.request("thread/start", {"cwd": TESTBED, "approvalPolicy": "never",
-                                            "sandbox": "workspace-write"})["thread"]
+        start = {"cwd": TESTBED, "approvalPolicy": "never", "sandbox": "workspace-write"}
+        if args.model:
+            start["model"] = args.model
+        thread = s.request("thread/start", start)["thread"]
         tid = thread["id"]
         results["thread_id"] = tid
         print("thread:", tid)
 
-        def scenario(name: str, text: str, **overrides) -> dict:
+        def scenario(name: str, text: str, **overrides) -> dict | None:
+            if not want(name):
+                return None
             started = time.time()
             turn = run_turn(s, tid, text, effort=args.effort, **overrides)
             time.sleep(1.5)  # let the Stop hook finish writing
@@ -112,6 +122,9 @@ def main() -> int:
                                "然后用一句话分别报告两个命令的结果。", summary="detailed")
         scenario("3_模型切换", "用一句话复述上一步两个命令的结果。", model=args.alt_model, summary="detailed")
 
+        if not want("4"):
+            results["hook_runs"] = hook_runs(s)
+            return finish(results)
         # 4. Interrupt: start a long command, then turn/interrupt (what the App's stop button sends).
         mark = s.mark()
         res = s.request("turn/start", {"threadId": tid, "effort": args.effort, "input": text_input(
@@ -144,7 +157,7 @@ def main() -> int:
     finally:
         s.close()
 
-    if not args.skip_exec:
+    if not args.skip_exec and want("6"):
         # 6. Same kernel through `codex exec` (CLI surface).
         proc = subprocess.run([str(exe), "exec", "--skip-git-repo-check", "-C", TESTBED, "--json",
                                "-c", f'model_reasoning_effort="{args.effort}"',
@@ -160,8 +173,13 @@ def main() -> int:
                                           "recorded_kinds": dict(recorded)}
         print(f"[6_exec] exit={proc.returncode} → {dict(recorded)}")
 
-    (OUT / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("results:", OUT / "results.json")
+    return finish(results)
+
+
+def finish(results: dict) -> int:
+    name = "results-" + time.strftime("%H%M%S") + ".json"
+    (OUT / name).write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("results:", OUT / name)
     return 0
 
 

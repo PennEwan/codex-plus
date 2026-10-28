@@ -64,6 +64,10 @@ class AppServer:
             raise RuntimeError(f"{method}: {resp['error']}")
         return resp.get("result") or {}
 
+    def respond(self, request_id: object, result: dict) -> None:
+        """Answer a server-initiated request (e.g. a command approval)."""
+        self._send({"id": request_id, "result": result})
+
     def notify(self, method: str, params: dict | None = None) -> None:
         self._send({"method": method, "params": params or {}})
 
