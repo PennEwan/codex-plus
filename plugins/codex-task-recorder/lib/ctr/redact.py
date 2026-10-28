@@ -11,6 +11,10 @@ from collections import Counter
 
 SENSITIVE_FILE_PLACEHOLDER = "[REDACTED:sensitive_file]"
 
+# `/充值` (or full-width `／充值`) opens the codex-cdk-recharge window; whatever follows may be a CDK.
+RECHARGE_COMMANDS = ("/充值", "／充值")
+RECHARGE_PLACEHOLDER = "[REDACTED:recharge_command]"
+
 # Order matters: specific token formats first, then generic header/URL/assignment rules.
 _VALUE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("private_key", re.compile(
@@ -59,6 +63,9 @@ def _assignment_value_is_secret(raw: str) -> bool:
 
 def redact_text(text: str) -> tuple[str, Counter]:
     counts: Counter = Counter()
+    if text.lstrip().startswith(RECHARGE_COMMANDS):
+        counts["recharge_command"] += 1
+        return RECHARGE_PLACEHOLDER, counts
     for kind, pattern in _VALUE_PATTERNS:
         text, n = pattern.subn(f"[REDACTED:{kind}]", text)
         if n:

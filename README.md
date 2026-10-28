@@ -23,16 +23,41 @@
 - 数据位置：`%LOCALAPPDATA%\CodexTaskRecorder\sessions\<日期>\<会话ID>.jsonl`
 - 桌面 App 自动发起的后台任务（无 transcript 的会话）也会触发 Hook：照常记录，标记 `session_kind=background`，报告中单独统计。
 
+## CDK 充值插件（P1 原型）
+
+在 Codex 输入框单独发送 **`/充值`** → 弹出「Codex 充值」小窗口 → 首次确认充值账号 → 输入 CDK → 确认兑换。CDK 只在小窗口里输入，不进入 Codex 对话、日志或埋点。
+
+| 步骤 | 操作 |
+|---|---|
+| 安装 | 双击 **`安装充值插件.cmd`** → 重启 Codex App → 插件 → Codex CDK 充值 → 点「信任」 |
+| 使用 | Codex 输入框发送 `/充值`；或双击 **`充值.cmd`** 直接打开窗口 |
+| 卸载 | 双击 **`卸载充值插件.cmd`** |
+| 设置 | `cdkr.cmd config --base-url https://…`（充值服务地址）；`cdkr.cmd status`；`cdkr.cmd unbind` |
+
+- 窗口是无边框圆角卡片（照 Codex 小助手的额度悬浮窗做的，纯 tkinter），按住空白处可拖动，Esc 关闭。
+- 充值账号由 Codex App 内核官方接口 `account/read` 读取（邮箱、套餐、账号 ID，不含令牌），用户确认后绑定。插件不读取 `auth.json`，不发送任何 ChatGPT 登录凭证。
+- 后台尚未实现：接口约定见 `docs/recharge-api.md`。充值服务地址默认未配置；本机调试先运行 `python scripts\mock_recharge_server.py`，再 `cdkr.cmd config --base-url http://127.0.0.1:18787`。
+- 代价：UserPromptSubmit 不支持 matcher，每条提示词都会运行一次该 Hook（约 0.4 s）。
+- 本机数据：`%LOCALAPPDATA%\CodexCdkRecharge\`（`config.json`、DPAPI 加密的 `binding.bin`、只记操作类型的 `cdkr.log`）。
+- 设计：`docs/superpowers/specs/2026-10-28-cdk-recharge-design.md`；测试结果：`docs/recharge-test-report.md`。
+
 ## 目录
 
 ```
 .agents/plugins/marketplace.json     本地插件市场 ctr-local
 plugins/codex-task-recorder/          Codex 插件（清单、hooks.json、Python 记录器）
-*.cmd                                 用户双击入口；ctr.cmd 为底层 CLI
+plugins/codex-cdk-recharge/           Codex 插件：/充值 弹窗（hooks.json、tkinter 卡片、后台客户端）
+*.cmd                                 用户双击入口；ctr.cmd / cdkr.cmd 为底层 CLI
 tests/                                单元测试（合成数据）
 scripts/live_tests.py                 实测脚本（消耗模型额度）
+scripts/live_recharge_hook.py         /充值 Hook 实测（app-server）
+scripts/live_window_demo.py           充值窗口实测（真实窗口 + 模拟后台，逐步截图）
+scripts/mock_recharge_server.py       充值模拟后台
 docs/hooks-support.md                 官方 App 的 Hooks 支持范围与限制
 docs/coverage-report.md               事件覆盖率报告
+docs/recharge-api.md                  充值后台接口约定
+docs/recharge-test-report.md          充值插件测试结果与遗留问题
+docs/recharge-manual-test.md          充值插件桌面 App 手动测试清单
 docs/desktop-manual-test.md           桌面 App 手动测试清单
 docs/superpowers/specs/               设计说明
 ```
@@ -41,7 +66,7 @@ docs/superpowers/specs/               设计说明
 
 ```bat
 :: 单元测试
-set PYTHONPATH=plugins\codex-task-recorder\lib;tests
+set PYTHONPATH=plugins\codex-task-recorder\lib;plugins\codex-cdk-recharge\lib;tests
 python -m unittest discover -s tests -t tests
 
 :: 仅限测试目录开启记录、实测、出报告

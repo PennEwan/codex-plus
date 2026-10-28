@@ -84,6 +84,14 @@ class RecordingTest(TempPathsCase):
         self.assertNotIn(key, prompt["data"]["text"])
         self.assertTrue(prompt["redaction"]["applied"])
 
+    def test_recharge_command_never_reaches_disk(self):
+        cdk = "ZQXW-9F3K-PL7M-2B8N"
+        self.run_hook(payload("UserPromptSubmit", prompt=f"/充值 {cdk}"))
+        prompt = next(e for e in self.events() if e["kind"] == "user_prompt")
+        self.assertEqual(prompt["data"]["text"], "[REDACTED:recharge_command]")
+        written = "".join(p.read_text(encoding="utf-8") for p in self.paths.root.rglob("*") if p.is_file())
+        self.assertNotIn(cdk, written)
+
     def test_post_tool_use_on_credential_file_drops_output(self):
         self.run_hook(payload("PostToolUse", tool_name="Bash", tool_use_id="call_1",
                               tool_input={"command": "type .env"},

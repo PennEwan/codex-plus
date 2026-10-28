@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
 from collections import Counter
@@ -104,18 +105,36 @@ def install_plugin() -> bool:
     return True
 
 
+_LISTING_ROW = re.compile(r"^(\S+)@(\S+)\s+(installed\b|not installed)")
+
+
+def installed_from(listing: str, marketplace: str) -> list[str]:
+    """Plugin names that `codex plugin list` reports as installed from one marketplace."""
+    rows = (_LISTING_ROW.match(line.strip()) for line in listing.splitlines())
+    return [m.group(1) for m in rows if m and m.group(2) == marketplace and m.group(3) == "installed"]
+
+
 def uninstall_plugin() -> bool:
     found = _kernel_or_explain()
     if not found:
         return False
     exe, _ = found
-    ok = True
-    for args in (["plugin", "remove", PLUGIN_SELECTOR],
-                 ["plugin", "marketplace", "remove", MARKETPLACE_NAME]):
-        proc = kernel.run(exe, args)
-        _show(proc)
-        ok = ok and proc.returncode == 0
-    return ok
+    proc = kernel.run(exe, ["plugin", "remove", PLUGIN_SELECTOR])
+    _show(proc)
+    ok = proc.returncode == 0
+    # The marketplace is shared with codex-cdk-recharge; keep it while another plugin uses it.
+    own = PLUGIN_SELECTOR.split("@", 1)[0]
+    listing = kernel.run(exe, ["plugin", "list"])
+    if listing.returncode != 0:  # unsure whether another plugin still uses it: keep it
+        print(f"保留插件市场 {MARKETPLACE_NAME}（无法确认是否仍有其他插件在用）。")
+        return ok
+    others = [n for n in installed_from(listing.stdout, MARKETPLACE_NAME) if n != own]
+    if others:
+        print(f"保留插件市场 {MARKETPLACE_NAME}（仍有插件在用：{'、'.join(others)}）。")
+        return ok
+    proc = kernel.run(exe, ["plugin", "marketplace", "remove", MARKETPLACE_NAME])
+    _show(proc)
+    return ok and proc.returncode == 0
 
 
 NEXT_STEPS = """

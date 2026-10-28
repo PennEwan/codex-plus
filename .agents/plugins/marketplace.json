@@ -1,7 +1,7 @@
 {
   "name": "ctr-local",
   "interface": {
-    "displayName": "Codex Task Recorder (local)"
+    "displayName": "本地插件（ctr-local）"
   },
   "plugins": [
     {
@@ -15,6 +15,18 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Developer Tools"
+    },
+    {
+      "name": "codex-cdk-recharge",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-cdk-recharge"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
     }
   ]
 }

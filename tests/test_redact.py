@@ -49,9 +49,17 @@ class RedactTextTest(unittest.TestCase):
     def test_curl_header_inline(self):
         self.assertRedacted('curl -H "x-api-key: zzzzzzzz1234" https://x', "zzzzzzzz1234", "auth_header")
 
+    def test_recharge_command_is_dropped_whole(self):
+        # `/充值` opens the CDK window; anything typed after it may be a CDK.
+        for text in ["/充值", "  /充值 ABCD-EFGH-1234", "/充值ABCD-EFGH-1234\n多行", "／充值 ABCD-EFGH-1234"]:
+            out, counts = redact_text(text)
+            self.assertEqual(out, "[REDACTED:recharge_command]", text)
+            self.assertEqual(counts["recharge_command"], 1)
+
     def test_leaves_ordinary_text_alone(self):
         for text in ["max_tokens: 100", "input_tokens=5321", "echo $OPENAI_API_KEY",
-                     "def login(password: str):", "hello world", "skill-based task"]:
+                     "def login(password: str):", "hello world", "skill-based task",
+                     "怎么 /充值？", "充值失败了"]:
             out, counts = redact_text(text)
             self.assertEqual(out, text, text)
             self.assertEqual(sum(counts.values()), 0, text)
