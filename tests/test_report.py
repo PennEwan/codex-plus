@@ -58,6 +58,7 @@ class ReportTest(TempPathsCase):
         self.assertEqual(x["prompt_text_equal"], 1)
         self.assertEqual(x["tool_ids_both"], 1)
         self.assertEqual(x["transcript_calls_without_hook"], 1)  # apply_patch never reached a hook
+        self.assertEqual(x["hook_results_outcome_unknown"], 0)
 
         md = report.render(r)
         self.assertIn("| Interrupt | **未观测到** |", md)

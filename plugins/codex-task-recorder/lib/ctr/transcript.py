@@ -26,6 +26,12 @@ class Context:
     sensitive_calls: list = field(default_factory=list)
     agent_id: str | None = None
     last_model: str | None = None
+    current_turn: str | None = None
+
+
+# Records of these kinds sit inside a turn even when the transcript omits turn_id.
+_TURN_SCOPED = {"tool_call", "tool_result", "token_usage", "assistant_message",
+                "reasoning_summary", "user_prompt", "turn_error"}
 
 
 @dataclass
@@ -67,7 +73,15 @@ def ingest(path: str, offset: int, state: State, ctx: Context, budget_bytes: int
         if not isinstance(rec, dict):
             stats["bad_line"] += 1
             continue
-        events.extend(_map_record(rec, line_offset, state, ctx, stats))
+        mapped = _map_record(rec, line_offset, state, ctx, stats)
+        payload = rec.get("payload") if isinstance(rec.get("payload"), dict) else {}
+        if rec.get("type") == "turn_context" or payload.get("type") == "task_started":
+            ctx.current_turn = payload.get("turn_id") or ctx.current_turn
+        for e in mapped:
+            if e["turn_id"] is None and ctx.current_turn and e["kind"] in _TURN_SCOPED:
+                e["turn_id"] = ctx.current_turn
+                e["relations"]["turn_id_inferred"] = True
+        events.extend(mapped)
     return IngestResult(events, offset + end + 1, stats)
 
 

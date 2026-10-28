@@ -193,9 +193,10 @@ def _ingest(payload: dict, st: state.State, cursor: dict, meta: dict, name: str)
     for path, agent_id in targets:
         tcur = cursor.setdefault("transcripts", {}).setdefault(path, {"offset": 0})
         ctx = transcript.Context(session_id=sid, meta=meta, sensitive_calls=sensitive,
-                                 agent_id=agent_id, last_model=tcur.get("last_model"))
+                                 agent_id=agent_id, last_model=tcur.get("last_model"),
+                                 current_turn=tcur.get("current_turn"))
         result = transcript.ingest(path, tcur["offset"], st, ctx, budget)
-        tcur["offset"], tcur["last_model"] = result.offset, ctx.last_model
+        tcur.update(offset=result.offset, last_model=ctx.last_model, current_turn=ctx.current_turn)
         events += result.events
         if result.stats:
             events.append(make_event(

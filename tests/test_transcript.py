@@ -137,6 +137,23 @@ class TranscriptTest(TempPathsCase):
         self.assertEqual(changed[0]["turn_id"], "t2")
         self.assertEqual(ctx.last_model, "gpt-b")
 
+    def test_records_without_turn_id_are_attributed_and_flagged(self):
+        write_rollout(self.path, [
+            rec(1, "event_msg", {"type": "task_started", "turn_id": "t7"}),
+            rec(2, "response_item", {"type": "custom_tool_call", "name": "exec", "call_id": "c1", "input": "x"}),
+            rec(3, "event_msg", {"type": "token_count", "info": {"total_token_usage": {}}}),
+            rec(4, "event_msg", {"type": "thread_settings_applied", "thread_settings": {"model": "m"}}),
+        ])
+        result, ctx = self.ingest()
+        call = next(e for e in result.events if e["kind"] == "tool_call")
+        self.assertEqual(call["turn_id"], "t7")
+        self.assertTrue(call["relations"]["turn_id_inferred"])
+        usage = next(e for e in result.events if e["kind"] == "token_usage")
+        self.assertEqual(usage["turn_id"], "t7")
+        thread_cfg = next(e for e in result.events if e["kind"] == "model_config")
+        self.assertIsNone(thread_cfg["turn_id"], "thread-scoped settings belong to no turn")
+        self.assertEqual(ctx.current_turn, "t7")
+
     def test_sensitive_call_output_dropped(self):
         write_rollout(self.path, [
             rec(1, "response_item", {"type": "custom_tool_call", "name": "exec", "call_id": "c9",

@@ -67,9 +67,14 @@ class AppServer:
     def notify(self, method: str, params: dict | None = None) -> None:
         self._send({"method": method, "params": params or {}})
 
-    def wait_for(self, pred, timeout: float = 300) -> dict:
+    def mark(self) -> int:
+        """Position to pass as `after=` so wait_for ignores earlier notifications."""
+        with self._cond:
+            return len(self.notifications)
+
+    def wait_for(self, pred, timeout: float = 300, after: int = 0) -> dict:
         deadline = time.monotonic() + timeout
-        seen = 0
+        seen = after
         with self._cond:
             while True:
                 for msg in self.notifications[seen:]:

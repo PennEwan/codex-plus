@@ -122,6 +122,12 @@ def build(events: list[dict]) -> dict:
                   if e["kind"] in ("tool_call", "tool_result") and e["source"]["type"] == "hook"} - {None}
     model_calls = {e.get("tool_use_id") for e in events
                    if e["kind"] == "tool_call" and e.get("granularity") == "model_tool_call"} - {None}
+    ui_items = {e.get("item_id"): e for e in events
+                if e["kind"] == "tool_result" and e.get("granularity") == "ui_item" and e.get("item_id")}
+    hook_results = [e for e in events if e["kind"] == "tool_result" and e["source"]["type"] == "hook"]
+    unknown = [e for e in hook_results if (e["data"] or {}).get("outcome") == "unknown"]
+    resolved = [e for e in unknown if e.get("tool_use_id") in ui_items
+                and ui_items[e["tool_use_id"]]["data"].get("outcome") in ("success", "error")]
     cross = {
         "prompt_turns_hook": len(hook_prompts), "prompt_turns_transcript": len(tr_prompts),
         "prompt_turns_both": len(shared),
@@ -129,6 +135,11 @@ def build(events: list[dict]) -> dict:
         "tool_ids_hook": len(hook_calls), "tool_ids_transcript_model_calls": len(model_calls),
         "tool_ids_both": len(hook_calls & model_calls),
         "transcript_calls_without_hook": len(model_calls - hook_calls),
+        "ui_items": len(ui_items),
+        "hook_ids_matching_ui_items": len(hook_calls & set(ui_items)),
+        "ui_items_without_hook": sorted(Counter(ui_items[i]["data"].get("tool_name") for i in set(ui_items) - hook_calls).items()),
+        "hook_results_outcome_unknown": len(unknown),
+        "hook_results_outcome_resolved_via_transcript": len(resolved),
     }
 
     omitted = Counter()
@@ -211,8 +222,13 @@ def render(r: dict) -> str:
     out += ["", "## 5. 来源交叉一致性", "",
             f"- Prompt：Hook {x['prompt_turns_hook']} 个回合，transcript {x['prompt_turns_transcript']} 个回合，"
             f"两者都有 {x['prompt_turns_both']} 个，其中文本一致 {x['prompt_text_equal']} 个",
-            f"- 工具调用 ID：Hook {x['tool_ids_hook']} 个，transcript 模型级调用 {x['tool_ids_transcript_model_calls']} 个，"
-            f"重合 {x['tool_ids_both']} 个；**只在 transcript 中出现（Hook 未覆盖）{x['transcript_calls_without_hook']} 个**",
+            f"- 工具调用 ID（UI 条目粒度）：Hook 涉及 {x['tool_ids_hook']} 个 ID，transcript UI 工具条目 {x['ui_items']} 个，"
+            f"其中 {x['hook_ids_matching_ui_items']} 个能与 Hook 对上；**Hook 未覆盖的 UI 条目**："
+            + (", ".join(f"{k} × {v}" for k, v in x["ui_items_without_hook"]) or "无"),
+            f"- 工具调用 ID（模型调用粒度）：transcript 模型级调用 {x['tool_ids_transcript_model_calls']} 个，与 Hook 重合 "
+            f"{x['tool_ids_both']} 个（Hook 按单条命令触发，模型级调用如 code-mode `exec` 一次可执行多条命令）",
+            f"- Hook 工具结果无法判定成败 {x['hook_results_outcome_unknown']} 条（PostToolUse 只给输出文本，不给退出码），"
+            f"其中 {x['hook_results_outcome_resolved_via_transcript']} 条可通过 tool_use_id = item_id 从 transcript 退出码补全",
             "", "## 6. 按策略省略 / 未映射的 transcript 记录（只计数，不存内容）", ""]
     out += [f"- `{k}`: {v}" for k, v in sorted(r["transcript_omitted_or_unmapped"].items())] or ["- 无"]
     out += ["", "## 7. 脱敏统计", ""]

@@ -4,12 +4,13 @@ Run only after the plugin's hooks are trusted (ctr status shows "trusted 12").
 Each scenario talks to our own `codex app-server` (same protocol and kernel as
 the desktop App) or to `codex exec`, inside D:\\ctr-testbed only.
 
-    python scripts/live_tests.py --alt-model gpt-5.5
+    python scripts/live_tests.py --alt-model gpt-5.6-luna
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -32,10 +33,11 @@ def text_input(text: str) -> list[dict]:
 
 
 def run_turn(s: AppServer, thread_id: str, text: str, timeout: float = 600, **overrides) -> dict:
+    mark = s.mark()
     res = s.request("turn/start", {"threadId": thread_id, "input": text_input(text), **overrides})
     turn_id = res["turn"]["id"]
     done = s.wait_for(lambda m: m.get("method") == "turn/completed"
-                      and m["params"]["turn"]["id"] == turn_id, timeout=timeout)
+                      and m["params"]["turn"]["id"] == turn_id, timeout=timeout, after=mark)
     return done["params"]["turn"]
 
 
@@ -45,8 +47,9 @@ def events_for_turn(turn_id: str) -> list[dict]:
 
 def ctr(*args: str) -> str:
     proc = subprocess.run([sys.executable, "-m", "ctr", *args], cwd=REPO, capture_output=True, text=True,
-                          encoding="utf-8", env={**__import__("os").environ,
-                                                 "PYTHONPATH": str(REPO / "plugins/codex-task-recorder/lib")})
+                          encoding="utf-8", errors="replace",
+                          env={**os.environ, "PYTHONIOENCODING": "utf-8",
+                               "PYTHONPATH": str(REPO / "plugins/codex-task-recorder/lib")})
     return (proc.stdout + proc.stderr).strip()
 
 
@@ -65,8 +68,9 @@ def hook_runs(s: AppServer) -> dict:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--alt-model", default="gpt-5.5")
+    ap.add_argument("--alt-model", default="gpt-5.6-luna")
     ap.add_argument("--effort", default="low")
     ap.add_argument("--skip-exec", action="store_true")
     args = ap.parse_args()
@@ -109,18 +113,22 @@ def main() -> int:
         scenario("3_模型切换", "用一句话复述上一步两个命令的结果。", model=args.alt_model, summary="detailed")
 
         # 4. Interrupt: start a long command, then turn/interrupt (what the App's stop button sends).
+        mark = s.mark()
         res = s.request("turn/start", {"threadId": tid, "effort": args.effort, "input": text_input(
             "请运行命令 `ping -n 90 127.0.0.1`，等它完全结束后再总结输出。")})
         turn_id = res["turn"]["id"]
         try:
             s.wait_for(lambda m: m.get("method") == "item/started"
-                       and (m["params"].get("item") or {}).get("type") == "commandExecution", timeout=180)
+                       and (m["params"].get("item") or {}).get("type") == "commandExecution", timeout=180,
+                       after=mark)
+            results["interrupt_point"] = "during commandExecution"
             time.sleep(3)
         except TimeoutError:
             print("[4_任务中断] no command started within 180s; interrupting anyway")
+            results["interrupt_point"] = "before any command started"
         s.request("turn/interrupt", {"threadId": tid, "turnId": turn_id})
         done = s.wait_for(lambda m: m.get("method") == "turn/completed"
-                          and m["params"]["turn"]["id"] == turn_id, timeout=120)["params"]["turn"]
+                          and m["params"]["turn"]["id"] == turn_id, timeout=120, after=mark)["params"]["turn"]
         time.sleep(2)
         recorded = Counter(e["kind"] for e in events_for_turn(turn_id))
         results["scenarios"]["4_任务中断"] = {"turn_id": turn_id, "status": done["status"],

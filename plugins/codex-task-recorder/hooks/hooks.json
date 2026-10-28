@@ -7,7 +7,8 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/ctr_hook.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}\\hooks\\ctr_hook.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -43,7 +44,8 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/ctr_hook.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}\\hooks\\ctr_hook.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -55,7 +57,8 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/ctr_hook.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}\\hooks\\ctr_hook.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -67,7 +70,8 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/ctr_hook.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}\\hooks\\ctr_hook.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -79,7 +83,8 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/ctr_hook.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}\\hooks\\ctr_hook.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -91,7 +96,8 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/ctr_hook.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}\\hooks\\ctr_hook.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -103,7 +109,8 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/ctr_hook.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}\\hooks\\ctr_hook.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -115,7 +122,8 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/ctr_hook.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}\\hooks\\ctr_hook.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -127,7 +135,8 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/ctr_hook.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}\\hooks\\ctr_hook.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
