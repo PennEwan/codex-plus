@@ -1,6 +1,0 @@
-{"type":"thread.started","thread_id":"01a18247-1263-7f62-85f7-f2bd849cc094"}
-{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Codex is ignoring 3 unrecognized configuration settings. Check for typos or deprecated settings.\n  user (C:\\Users\\admin\\.codex\\config.toml): `disable_response_storage` is ignored.\n  user (C:\\Users\\admin\\.codex\\config.toml): `network_access` is ignored.\n  user (C:\\Users\\admin\\.codex\\config.toml): `windows_wsl_setup_acknowledged` is ignored."}}
-{"type":"item.completed","item":{"id":"item_1","type":"error","message":"Codex is ignoring 3 unrecognized configuration settings. Check for typos or deprecated settings.\n  user (C:\\Users\\admin\\.codex\\config.toml): `disable_response_storage` is ignored.\n  user (C:\\Users\\admin\\.codex\\config.toml): `network_access` is ignored.\n  user (C:\\Users\\admin\\.codex\\config.toml): `windows_wsl_setup_acknowledged` is ignored."}}
-{"type":"turn.started"}
-{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"pong"}}
-{"type":"turn.completed","usage":{"input_tokens":15357,"cached_input_tokens":12800,"cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}}

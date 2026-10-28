@@ -1,6 +1,0 @@
-WARNING: failed to clean up stale arg0 temp dirs: 目录不是空的。 (os error 145)
-Reading additional input from stdin...
-2026-10-28T11:31:03.223482Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out
-2026-10-28T11:31:03.318201Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out
-2026-10-28T11:31:08.917060Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out
-2026-10-28T11:31:20.484792Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out
