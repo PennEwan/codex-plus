@@ -192,7 +192,34 @@ def cmd_status(args, paths: Paths) -> int:
     if args.verbose:
         for kind, n in kinds.most_common():
             print(f"  {kind}: {n}")
+    _print_hook_trust()
     return 0
+
+
+def _print_hook_trust() -> None:
+    """Ask Codex itself (hooks/list) whether the plugin's hooks are loaded and trusted."""
+    from .appserver import AppServer
+
+    found = kernel.find_app_kernel()
+    if not found:
+        print("插件 Hook：未找到 Codex App 内核，无法检查")
+        return
+    server = AppServer(found[0], str(Path.home()))
+    try:
+        server.initialize()
+        hooks = server.plugin_hooks(str(Path.home()), PLUGIN_SELECTOR)
+    except Exception as exc:  # noqa: BLE001 - status must still print
+        print(f"插件 Hook：检查失败（{type(exc).__name__}）")
+        return
+    finally:
+        server.close()
+    if not hooks:
+        print("插件 Hook：Codex 未加载本插件的 Hook（插件未安装或已禁用）")
+        return
+    trust = Counter(h.get("trustStatus") for h in hooks)
+    print(f"插件 Hook：已加载 {len(hooks)} 个；" + "，".join(f"{k} {v}" for k, v in trust.items()))
+    if trust.get("untrusted") or trust.get("modified"):
+        print("  → 还有 Hook 未信任：请在 Codex 插件页点「全部信任」，或在 设置 → Hooks 中信任。")
 
 
 def cmd_install(args, paths: Paths) -> int:
